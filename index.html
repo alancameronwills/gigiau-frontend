@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" type="image/x-icon" href="gigiau.ico">
+    <link rel="stylesheet" type="text/css" href="css/gigiau.css" />
+    <meta property="og:image" content="/gigiau.png">
+    <meta property="og:title" content="Gigiau" />
+    <meta property="og:url" content="https://gigiau.uk/" />
+    <meta property="og:description" content="Events and shows - What's On in North Pembrokshire" />
+    <title>Gigiau - Shows in North Pembrokeshire</title>
+    <script>
+        // TODO:
+        // - FilterGroup
+        // - Filter by show/hide; datestrips separate
+
+        var events = [];
+        var data = "https://pantywylan.blob.core.windows.net/gigsmash/client";
+
+
+        var lastMidnight = (() => {
+            let now = new Date();
+            return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        })();
+
+        async function go() {
+            if (location.host == "localhost") data = "";
+            events = await fetch(data + "/json/events.json?v=" + Date.now()).then(r => r.json());
+            markFirstShowOfEachDate();
+            CategoryFilters.restore();
+            PromoterFilters.restore();
+            Filters.notify(showAllFiltered);
+            setTimeout(() => location.reload(), 1000 * 60 * 60 * 6);
+            document.getElementById("date").innerText = "" + new Date(events.date).toISOString();
+        }
+
+        function markFirstShowOfEachDate() {
+            let groupDate = 0;
+            events.shows.forEach(show => {
+                let dt = new Date(show.dt);
+                let dtDay = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
+                show.dtDayValue = dtDay.valueOf();
+                show.newDate = show.dtDayValue != groupDate;
+                groupDate = show.dtDayValue;
+            });
+        }
+
+        function showAllFiltered() {
+            let table = document.getElementById('table');
+            if (!table.innerText.trim()) {
+                table.innerHTML = (events.shows.map((show, ix) => ((show.dt || 0) >= lastMidnight) ? showOne(show, ix) : "").join('\n'));
+            }
+            let previousDateHeading = null;
+            let showingShowsSincePreviousDateHeading = 0;
+            const showIf = (item, condition) => {
+                if (item) {
+                    if (condition) item.classList.remove("hide");
+                    else item.classList.add("hide");
+                }
+                return condition;
+            }
+            const updatePreviousHeading = () => {
+                showIf(previousDateHeading, showingShowsSincePreviousDateHeading > 0);
+            }
+            Array.from(table.children).forEach(item => {
+                if (item.classList.contains("show")) {
+                    const show = events.shows[1 * item.id.substring('show-'.length)];
+                    if (show) {
+                        if (showIf(item, isShowVisible(show))) {
+                            showingShowsSincePreviousDateHeading++;
+                        }
+                    }
+                } else if (item.classList.contains("dateHeading")) {
+                    updatePreviousHeading();
+                    previousDateHeading = item;
+                    showingShowsSincePreviousDateHeading = 0;
+                }
+            })
+            updatePreviousHeading();
+
+        }
+
+
+        function isShowVisible(show) {
+            return CategoryFilters.includes(show.category)
+                && PromoterFilters.includes(show.promoter)
+                && show.dt >= lastMidnight;
+        }
+
+        function showOne(show, ix) {
+            const cacheImage = data + ((show?.image || "").replace("client/pix/", ""));
+            const ifHidden = isShowVisible(show) ? "" : "hide";
+            return (show.newDate ? `<div class="dateHeading">
+                        ${new Date(show.dtDayValue).toLocaleDateString(undefined, {
+                weekday: "long",
+                year: "numeric",
+                month: "long",
+                day: "numeric"
+            })}
+                    </div>` : "")
+                + `<div class='show ${ifHidden} ${show.category || ""} ${show.promoter}' id='show-${ix}'>
+                    <div class='venue' onclick='venueFilter("${show.promoter}")'>${show.venue}</div>
+                    <div class='image'><a href='${show.url}'><img src='${cacheImage}'/></a></div>
+                    <div class='title'><a href='${show.url}'>${show.title}</a></div>
+                    <div class='subtitle'>${show.subtitle || ""}</div>
+                    <div class='date'>${show.date}</div>
+                    <div class='description'>${show.text}</div>
+                </div>`;
+        }
+
+
+        class Filters {
+            static #observers = [];
+            static filters;
+            static restore() {
+                Filters.filters = JSON.parse(localStorage.getItem("filters")
+                    || '{"categoryExclude":{},"promoterExclude":{}}');
+            }
+            static save() {
+                localStorage.setItem("filters", JSON.stringify(Filters.filters))
+            }
+
+            /** Call every observer. Optionally add a new observer.
+             * @param {()} [f] Add f to observers
+             */
+            static notify(f) {
+                if (f) Filters.#observers.push(f);
+                Filters.#observers.forEach(f => f());
+            }
+        }
+
+        class PromoterFilters extends Filters {
+            static #previousSelection = {};
+            static selections() {
+                let filterSelections = {};
+                document.querySelectorAll(".promoterFilter").forEach(ip => {
+                    filterSelections[ip.name] = !ip.checked;
+                });
+                return filterSelections;
+            }
+
+            static toggleMenu() {
+                let menu = document.getElementById("promoterMenu");
+                let showing = menu.classList.toggle("visible");
+                let bottomMenu = document.getElementById("bottomMenu");
+                if (showing) bottomMenu.classList.add("visible");
+                else bottomMenu.classList.remove("visible");
+                if (!showing) {
+                    const trueKeys = o => Object.keys(o).filter(k => o[k]);
+                    const newSelection = trueKeys(PromoterFilters.selections());
+                    if (newSelection.length != trueKeys(PromoterFilters.#previousSelection)
+                        || !newSelection.every(k => PromoterFilters.#previousSelection[k])) {
+                        PromoterFilters.save();
+                    }
+                } else {
+                    PromoterFilters.#previousSelection = PromoterFilters.selections();
+                }
+            }
+
+            static isPromoterSelected(p) {
+                return !!(document.querySelector(`input[name='${p}']`)?.checked);
+            }
+
+            static restore(promoters) {
+                Filters.restore();
+                let promoterKeys = Object.keys(events.promoters);
+                promoterKeys.sort((a, b) => a.localeCompare(b));
+                let menuItems = promoterKeys.map(p => `
+                <div><input type="checkbox" class='promoterFilter' ${Filters.filters.promoterExclude?.[p] !== true ? 'checked' : ''} name="${p}" id='${p}filter'/>
+                    <label for='${p}filter'>${events.promoters[p]}</label></div>`).join('\n');
+                document.getElementById("promoterMenu").innerHTML = 
+                    `<div><div><input type="checkbox" onclick="PromoterFilters.swogglePromoters()" id="promoterSwoggle"/>
+                        <label for="promoterAll">~~~</label></div>${menuItems}</div>`;
+                document.querySelectorAll("#promoterMenu>div").forEach(ip => {
+                    ip.onclick = e => {
+                        e.stopPropagation();
+                    };
+                });
+            }
+            static swogglePromoters() {
+                Array.from(document.querySelectorAll(".promoterFilter")).forEach(item => {
+                    item.checked = !item.checked; 
+                })
+            }
+
+            static menuItemForPromoter(p) {
+                return document.querySelector(`#promoterMenu>div>div:has(input[name="${p}"])`);
+            }
+
+            static save() {
+                Filters.filters.promoterExclude = PromoterFilters.selections();
+                Filters.save();
+                Filters.notify();
+            }
+
+            static includes(p) {
+                return !Filters.filters.promoterExclude?.[p];
+            }
+        }
+
+
+        class CategoryFilters extends Filters {
+            static save() {
+                let filterSelections = {};
+                document.querySelectorAll(".filter input").forEach(ip => {
+                    filterSelections[ip.id.replace(/filter/, '')] = !ip.checked;
+                });
+                Filters.filters.categoryExclude = filterSelections;
+                Filters.save();
+                Filters.notify();
+            }
+            static restore() {
+                Filters.restore();
+                document.querySelectorAll(".filter input").forEach(ip => {
+                    let restoreValue = Filters.filters.categoryExclude[ip.id.replace(/filter/, "")];
+                    if (restoreValue !== null) {
+                        ip.checked = !restoreValue;
+                    }
+                })
+            }
+            static includes(c) {
+                return !Filters.filters.categoryExclude[c];
+            }
+        }
+
+        class Flag {
+            static #f() { return document.getElementById("flag") }
+            static flag(text) {
+                const f = Flag.#f();
+                f.innerText = text;
+                f.style.display = "block";
+                setTimeout(this.clear, 10000);
+            }
+            static clear() {
+                const f = Flag.#f();
+                f.innerText = "";
+                f.style.display = "none";
+            }
+        }
+        
+        function share() {
+            document.querySelector("#share-page")
+            .classList.add("visible");        
+        }
+        function about () {
+            document.querySelector("#about-page")
+            .classList.add("visible");            
+        }
+        function installer() {
+            document.querySelector("#install-android-page")
+            .classList.add("visible");
+        }
+
+        function hidePageOver() {
+            Array.from(document.querySelectorAll(".page")).forEach(el => {
+                el.classList.remove("visible");
+            });
+        }
+        
+    </script>
+</head>
+
+<body onload="go()">
+    <div id="sources"></div>
+    <div class="head"><img src="gigiau.png" /></div>
+    <div id="table" class="table"></div>
+    <div id="date"></div>
+    <div id="filters">
+        <div class="filter">
+            <input type="checkbox" id="filmfilter" onchange="CategoryFilters.save()" />
+            <label for="filmfilter">films</label>
+        </div>
+        <div class="filter">
+            <input type="checkbox" id="quizfilter" checked onchange="CategoryFilters.save()" />
+            <label for="quizfilter">quizzes</label>
+        </div>
+        <div class="filter">
+            <input type="checkbox" id="broadcastfilter" checked onchange="CategoryFilters.save()" />
+            <label for="broadcastfilter">broadcast</label>
+        </div>
+        <div class="filter">
+            <input type="checkbox" id="livefilter" checked onchange="CategoryFilters.save()" />
+            <label for="livefilter">live</label>
+        </div>
+    </div>
+    <div id="promoterMenu" onclick="PromoterFilters.toggleMenu()">
+
+    </div>
+    <div id="menu" onclick="PromoterFilters.toggleMenu()">
+        <svg viewBox='0 0 10 8' width='20'>
+            <path d='M1 1h8M1 4h 8M1 7h8' stroke='#000' stroke-width='2' stroke-linecap='round' />
+        </svg>
+    </div>
+    
+    <div>
+    <style>
+        #bottomMenu {
+            position:fixed;
+            bottom: 0;
+            width: 100%;
+            margin-bottom: -100%;
+            background-color: white;
+            display: flex;
+            justify-content: space-around;
+            z-index: 300;
+            padding: 6px;
+            transition: all 1s;
+        }
+        #bottomMenu.visible {
+            margin-bottom: 0;
+        }
+        #bottomMenu button {
+            background-color: black;
+            color: white;
+            border: 0;
+            border-radius: 4px;
+        }
+
+    </style>
+    <div id="bottomMenu" onclick="PromoterFilters.toggleMenu()">
+        <button id="installButton" onclick="installer()">Install</button>
+        <button onclick="share()">Share</button>
+        <button onclick="about()">About</button>
+    </div>
+    </div>
+    
+    <div>
+    <style>.betabanner {position:fixed;bottom:0;width:100%;z-index:200;background-color:black;color:lightgray;display:flex;flex-wrap:wrap;justify-content:space-between;}
+    .betabanner>div {padding: 0 20px;}
+    .betabanner a:link{color:lightblue}</style>
+    <div class="betabanner"><div>Beta v0.81</div><div>Bugs, ideas: <a href="mailto:info@gigiau.uk">info@gigiau.uk</a></div></div>
+    </div>
+    
+    <div id="PageOver">
+        <style>
+            .page {
+                background-color: whitesmoke;
+                color: black;
+                transition: all 0.5s;
+                position: fixed;
+                top:0;
+                left:0;
+                width: 100%;
+                height:100%;
+                z-index:400;
+            }
+            #install-android-page,
+            #share-page {
+                
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                grid-template-rows: repeat(3, 1fr);
+                grid-column-gap: 4px;
+                grid-row-gap: 2px;
+            }
+            .page:not(.visible) {
+                max-width: 0;
+                max-height: 0;
+                margin-left: -150vw;
+            }
+            .page>div {
+                align-self: center;
+                justify-self:center;
+            }
+            .mid {
+                grid-column: 2;
+                grid-row: 2;
+            }
+        </style>
+        <div id="install-android-page" class="page" onclick="hidePageOver()">
+            <div style="grid-column:3;grid-row:1;">
+                Keep this page as an app on your phone.<br/>
+                Use the Install as App menu at top right of your browser.
+            </div>
+        </div>
+        <div id="share-page" class="page" onclick="hidePageOver()">
+            <div style="grid-column:3;grid-row:1;">
+                Use the Share menu at top right to send a link.
+            </div>
+            <div style="grid-column:2;grid-row:2;">
+                <img src="qr-share.png" onclick="hidePageOver()"/>
+            </div>
+            <div style="grid-column:2;grid-row:3;">
+                Show the QR code to a friend to get it on their phone.
+            </div>
+        </div>
+        <div id="about-page" class="page" onclick="hidePageOver()">
+             <div class="head"><img src="gigiau.png" /></div>
+             <div style="padding:20px;">
+            <p>
+Gigiau brings into one place lots of the shows and events happening
+in North Pembrokeshire, with the kind co-operation of many venues and 
+promoters.
+            </p>
+            <p>&nbsp;&nbsp;</p>
+            <p >
+            We don't use cookies. We store a small amount of info on your device to remember your preferences. We don't collect information about you. We count the number of times the app is used.
+            </p>
+            </div>
+        </div>
+
+    </div>
+
+</body>
+
+</html>
