@@ -1,6 +1,5 @@
 <!DOCTYPE html>
-<html>
-
+<html lang="en-gb">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -15,6 +14,10 @@
         // TODO:
         // - FilterGroup
         // - Filter by show/hide; datestrips separate
+
+        if (location.protocol=="http:" && location.host != "localhost") {
+                location.replace(location.href.replace("http:", "https:"));
+        }
 
         var events = [];
         var data = "https://pantywylan.blob.core.windows.net/gigsmash/client";
@@ -141,8 +144,9 @@
                 return filterSelections;
             }
 
-            static toggleMenu() {
+            static toggleMenu(off) {
                 let menu = document.getElementById("promoterMenu");
+                if (off && !menu.classList.contains("visible")) return;
                 let showing = menu.classList.toggle("visible");
                 let bottomMenu = document.getElementById("bottomMenu");
                 if (showing) bottomMenu.classList.add("visible");
@@ -154,6 +158,8 @@
                         || !newSelection.every(k => PromoterFilters.#previousSelection[k])) {
                         PromoterFilters.save();
                     }
+                    history.pushState({"showPromoterMenu":true}, "", 
+                                        "./#promoter");
                 } else {
                     PromoterFilters.#previousSelection = PromoterFilters.selections();
                 }
@@ -239,19 +245,29 @@
                 f.style.display = "none";
             }
         }
-        
+         
         function share() {
-            document.querySelector("#share-page")
-            .classList.add("visible");        
+            showPageOver("#share-page");        
         }
         function about () {
-            document.querySelector("#about-page")
-            .classList.add("visible");            
+            showPageOver("#about-page");            
         }
         function installer() {
-            document.querySelector("#install-android-page")
-            .classList.add("visible");
+            showPageOver("#install-android-page");
         }
+
+        function showPageOver(id) {
+            document.querySelector(id).classList.add("visible");
+            history.pushState({"showPageOver":id}, "", "./#"+id);
+        }
+        
+        onpopstate = e => {
+                if (e.state.showPageOver || e.state.showPromoterMenu){ 
+                    e.preventDefault(); 
+                    hidePageOver();
+                    PromoterFilters.toggleMenu(true);
+                }
+            };
 
         function hidePageOver() {
             Array.from(document.querySelectorAll(".page")).forEach(el => {
@@ -267,6 +283,7 @@
     <div class="head"><img src="gigiau.png" /></div>
     <div id="table" class="table"></div>
     <div id="date"></div>
+    <div id="space">&nbsp;</div>
     <div id="filters">
         <div class="filter">
             <input type="checkbox" id="filmfilter" onchange="CategoryFilters.save()" />
@@ -285,7 +302,7 @@
             <label for="livefilter">live</label>
         </div>
     </div>
-    <div id="promoterMenu" onclick="PromoterFilters.toggleMenu()">
+    <div id="promoterMenu" class="slideout" onclick="PromoterFilters.toggleMenu()">
 
     </div>
     <div id="menu" onclick="PromoterFilters.toggleMenu()">
@@ -320,7 +337,7 @@
 
     </style>
     <div id="bottomMenu" onclick="PromoterFilters.toggleMenu()">
-        <button id="installButton" onclick="installer()">Install</button>
+        <!--<button id="installButton" onclick="installer()">Install</button>-->
         <button onclick="share()">Share</button>
         <button onclick="about()">About</button>
     </div>
@@ -330,7 +347,7 @@
     <style>.betabanner {position:fixed;bottom:0;width:100%;z-index:200;background-color:black;color:lightgray;display:flex;flex-wrap:wrap;justify-content:space-between;}
     .betabanner>div {padding: 0 20px;}
     .betabanner a:link{color:lightblue}</style>
-    <div class="betabanner"><div>Beta v0.81</div><div>Bugs, ideas: <a href="mailto:info@gigiau.uk">info@gigiau.uk</a></div></div>
+    <div class="betabanner"><div>Beta v0.81</div><div>Bugs, ideas: <a href="mailto:alan@cameronwills.org">alan@cameronwills.org</a></div></div>
     </div>
     
     <div id="PageOver">
